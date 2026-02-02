@@ -1,5 +1,5 @@
 # Challenge PowerShell - Jeu du Plus ou Moins
-
+# Auteur : CaptainBeatty
 ## Contexte professionnel
 
 Vous travaillez chez **TechSecure** en tant qu'administrateur système junior. Dans le cadre de votre formation continue, votre manager souhaite que vous maîtrisiez PowerShell et les bonnes pratiques de développement, notamment l'utilisation de Git pour versionner votre code.
