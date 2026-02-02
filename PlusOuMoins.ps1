@@ -1,46 +1,76 @@
-Clear-Host
-Write-Host "==============================" -ForegroundColor Cyan
-Write-Host "     LESS / MORE  GAME        " -ForegroundColor Cyan
-Write-Host "==============================" -ForegroundColor Cyan
+function Show-Header {
+    param([string]$difficultyLabel)
 
-Write-Host ""
-Write-Host "Règles du jeu :" -ForegroundColor Yellow
-Write-Host "- Un nombre est généré aléatoirement" -ForegroundColor Yellow
-Write-Host "- Devinez-le en proposant un nombre" -ForegroundColor Yellow
-Write-Host "- Le jeu vous dira si c'est plus ou moins" -ForegroundColor Yellow
-Write-Host "- Vous avez un nombre limité de tentatives" -ForegroundColor Yellow
-Write-Host ""
+    Clear-Host
+    Write-Host "==============================" -ForegroundColor Cyan
+    Write-Host "     LESS / MORE  GAME        " -ForegroundColor Cyan
+    Write-Host "==============================" -ForegroundColor Cyan
 
-# Bornes
-$x = 1
-$y = 100
+    if ($difficultyLabel) {
+        Write-Host "Difficulté : $difficultyLabel" -ForegroundColor Yellow
+    }
 
-# Limite de tentatives
-$maxTentatives = 10
+    Write-Host ""
+    Write-Host "Règles du jeu :" -ForegroundColor Yellow
+    Write-Host "- Un nombre est généré aléatoirement" -ForegroundColor Yellow
+    Write-Host "- Devinez-le en proposant un nombre" -ForegroundColor Yellow
+    Write-Host "- Le jeu vous dira si c'est plus ou moins" -ForegroundColor Yellow
+    Write-Host "- Vous avez un nombre limité de tentatives" -ForegroundColor Yellow
+    Write-Host ""
+}
 
-# Historique des scores (nombre de tentatives pour gagner)
+function Select-Difficulty {
+    while ($true) {
+        Clear-Host
+        Write-Host "Choisissez une difficulté :" -ForegroundColor Cyan
+        Write-Host "1) Facile   (1-50)   - 15 tentatives" -ForegroundColor Green
+        Write-Host "2) Moyen    (1-100)  - 10 tentatives" -ForegroundColor Yellow
+        Write-Host "3) Difficile(1-200)  - 8 tentatives" -ForegroundColor Red
+        Write-Host ""
+
+        $choice = Read-Host "Votre choix (1/2/3)"
+
+        switch ($choice) {
+            '1' { return @{ Min = 1; Max = 50; MaxTry = 15; Label = "Facile" } }
+            '2' { return @{ Min = 1; Max = 100; MaxTry = 10; Label = "Moyen" } }
+            '3' { return @{ Min = 1; Max = 200; MaxTry = 8; Label = "Difficile" } }
+            default {
+                Write-Host "Erreur : choix invalide (1, 2 ou 3)" -ForegroundColor Red
+                Start-Sleep -Milliseconds 900
+            }
+        }
+    }
+}
+
+# Historique des scores (nombre de tentatives quand victoire)
 $scores = New-Object System.Collections.Generic.List[int]
+
+# --------- Sélection difficulté (au démarrage) ---------
+$config = Select-Difficulty
+$x = $config.Min
+$y = $config.Max
+$maxTentatives = $config.MaxTry
+$difficultyLabel = $config.Label
+
+Show-Header -difficultyLabel $difficultyLabel
 
 while ($true) {
     # -------- Partie --------
     $nombre = Get-Random -Minimum $x -Maximum ($y + 1)   # +1 car -Maximum est exclusif
     $tentatives = 0
-    $gagne = $false
-
-    # Write-Host $nombre  # DEBUG
 
     while ($true) {
-        # Stop si limite atteinte
+        # Défaite si limite atteinte
         if ($tentatives -ge $maxTentatives) {
             Write-Host ""
-            Write-Host "💀 Perdu ! Vous avez dépassé $maxTentatives tentatives." -ForegroundColor Red
+            Write-Host "💀 Perdu ! Limite atteinte : $maxTentatives tentatives." -ForegroundColor Red
             Write-Host "Le nombre était : $nombre" -ForegroundColor Yellow
             break
         }
 
-        $guessRaw = Read-Host "Pensez à un nombre ($x-$y) [tentative $(($tentatives + 1))/$maxTentatives]"
+        $guessRaw = Read-Host "Nombre ($x-$y) [$(($tentatives + 1))/$maxTentatives]"
 
-        # Validation "hard" : vide / espaces
+        # Validation : vide
         if ([string]::IsNullOrWhiteSpace($guessRaw)) {
             Write-Host "Erreur : saisie invalide (vide)" -ForegroundColor Red
             continue
@@ -53,13 +83,13 @@ while ($true) {
             continue
         }
 
-        # Validation : dans la plage
+        # Validation : scope
         if ($guess -lt $x -or $guess -gt $y) {
             Write-Host "Erreur : le nombre doit être entre $x et $y" -ForegroundColor Red
             continue
         }
 
-        # Tentative comptabilisée seulement si l'entrée est valide
+        # Tentative comptée seulement si valide
         $tentatives++
         Write-Host "Tentative n°$tentatives" -ForegroundColor Yellow
 
@@ -74,38 +104,45 @@ while ($true) {
         }
 
         # Victoire
-        $gagne = $true
         Write-Host ""
         Write-Host "🎉 Bravo ! Trouvé en $tentatives tentative(s)." -ForegroundColor Cyan
 
-        # Sauvegarde du score
         $scores.Add($tentatives)
-
-        # Meilleur score (min)
         $bestScore = ($scores | Measure-Object -Minimum).Minimum
 
-        Write-Host "Meilleur score actuel : $bestScore tentative(s)" -ForegroundColor Cyan
+        Write-Host "Meilleur score (victoires uniquement) : $bestScore" -ForegroundColor Cyan
         Write-Host "Historique : $($scores -join ', ')" -ForegroundColor Yellow
         break
     }
 
     # -------- Rejouer ? --------
     Write-Host ""
-    $replay = Read-Host "Voulez-vous rejouer ? (O/N)"
+    $replay = Read-Host "Rejouer ? (O/N) — ou tapez D pour changer de difficulté"
+
+    if ($replay -match '^(?i)d$') {
+        $config = Select-Difficulty
+        $x = $config.Min
+        $y = $config.Max
+        $maxTentatives = $config.MaxTry
+        $difficultyLabel = $config.Label
+        Show-Header -difficultyLabel $difficultyLabel
+        continue
+    }
 
     if ($replay -notmatch '^(?i)o(ui)?$') {
         Write-Host ""
-        Write-Host "Fin du jeu. Scores enregistrés : $($scores -join ', ')" -ForegroundColor Yellow
+        Write-Host "Fin du jeu." -ForegroundColor Yellow
 
         if ($scores.Count -gt 0) {
             $bestScore = ($scores | Measure-Object -Minimum).Minimum
             Write-Host "Meilleur score final : $bestScore tentative(s)" -ForegroundColor Cyan
+            Write-Host "Scores : $($scores -join ', ')" -ForegroundColor Yellow
         }
         else {
-            Write-Host "Aucun score (aucune victoire)." -ForegroundColor Red
+            Write-Host "Aucune victoire enregistrée." -ForegroundColor Red
         }
         break
     }
 
-    Clear-Host
+    Show-Header -difficultyLabel $difficultyLabel
 }
