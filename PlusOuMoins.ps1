@@ -1,35 +1,53 @@
 function Show-Header {
-    param([string]$difficultyLabel)
+    param([string]$modeLabel, [string]$difficultyLabel)
 
     Clear-Host
     Write-Host "==============================" -ForegroundColor Cyan
     Write-Host "     LESS / MORE  GAME        " -ForegroundColor Cyan
     Write-Host "==============================" -ForegroundColor Cyan
 
-    if ($difficultyLabel) {
-        Write-Host "Difficulté : $difficultyLabel" -ForegroundColor Yellow
-    }
+    if ($modeLabel) { Write-Host "Mode : $modeLabel" -ForegroundColor Yellow }
+    if ($difficultyLabel) { Write-Host "Difficulté : $difficultyLabel" -ForegroundColor Yellow }
 
     Write-Host ""
     Write-Host "Règles du jeu :" -ForegroundColor Yellow
-    Write-Host "- Un nombre est généré aléatoirement" -ForegroundColor Yellow
-    Write-Host "- Devinez-le en proposant un nombre" -ForegroundColor Yellow
-    Write-Host "- Le jeu vous dira si c'est plus ou moins" -ForegroundColor Yellow
-    Write-Host "- Vous avez un nombre limité de tentatives" -ForegroundColor Yellow
+    Write-Host "- Devinez le nombre" -ForegroundColor Yellow
+    Write-Host "- Le jeu indique plus / moins" -ForegroundColor Yellow
+    Write-Host "- Saisie invalide => erreur rouge" -ForegroundColor Yellow
+    Write-Host "- Tentatives limitées" -ForegroundColor Yellow
     Write-Host ""
+}
+
+function Select-Mode {
+    while ($true) {
+        Clear-Host
+        Write-Host "Choisissez le mode :" -ForegroundColor Cyan
+        Write-Host "1) Un joueur contre l'ordinateur" -ForegroundColor Green
+        Write-Host "2) Deux joueurs" -ForegroundColor Yellow
+        Write-Host ""
+
+        $choice = Read-Host "Votre choix (1/2)"
+        switch ($choice) {
+            '1' { return @{ Mode = 1; Label = "1 joueur vs ordinateur" } }
+            '2' { return @{ Mode = 2; Label = "Deux joueurs" } }
+            default {
+                Write-Host "Erreur : choix invalide (1 ou 2)" -ForegroundColor Red
+                Start-Sleep -Milliseconds 900
+            }
+        }
+    }
 }
 
 function Select-Difficulty {
     while ($true) {
         Clear-Host
         Write-Host "Choisissez une difficulté :" -ForegroundColor Cyan
-        Write-Host "1) Facile   (1-50)   - 15 tentatives" -ForegroundColor Green
-        Write-Host "2) Moyen    (1-100)  - 10 tentatives" -ForegroundColor Yellow
-        Write-Host "3) Difficile(1-200)  - 8 tentatives" -ForegroundColor Red
+        Write-Host "1) Facile    (1-50)   - 15 tentatives" -ForegroundColor Green
+        Write-Host "2) Moyen     (1-100)  - 10 tentatives" -ForegroundColor Yellow
+        Write-Host "3) Difficile (1-200)  - 8 tentatives" -ForegroundColor Red
         Write-Host ""
 
         $choice = Read-Host "Votre choix (1/2/3)"
-
         switch ($choice) {
             '1' { return @{ Min = 1; Max = 50; MaxTry = 15; Label = "Facile" } }
             '2' { return @{ Min = 1; Max = 100; MaxTry = 10; Label = "Moyen" } }
@@ -42,107 +60,194 @@ function Select-Difficulty {
     }
 }
 
-# Historique des scores (nombre de tentatives quand victoire)
-$scores = New-Object System.Collections.Generic.List[int]
-
-# --------- Sélection difficulté (au démarrage) ---------
-$config = Select-Difficulty
-$x = $config.Min
-$y = $config.Max
-$maxTentatives = $config.MaxTry
-$difficultyLabel = $config.Label
-
-Show-Header -difficultyLabel $difficultyLabel
-
-while ($true) {
-    # -------- Partie --------
-    $nombre = Get-Random -Minimum $x -Maximum ($y + 1)   # +1 car -Maximum est exclusif
-    $tentatives = 0
+function Read-ValidGuess {
+    param(
+        [int]$Min,
+        [int]$Max,
+        [int]$TryIndex,
+        [int]$MaxTry
+    )
 
     while ($true) {
-        # Défaite si limite atteinte
-        if ($tentatives -ge $maxTentatives) {
-            Write-Host ""
-            Write-Host "💀 Perdu ! Limite atteinte : $maxTentatives tentatives." -ForegroundColor Red
-            Write-Host "Le nombre était : $nombre" -ForegroundColor Yellow
-            break
-        }
+        $raw = Read-Host "Nombre ($Min-$Max) [${TryIndex}/$MaxTry]"
 
-        $guessRaw = Read-Host "Nombre ($x-$y) [$(($tentatives + 1))/$maxTentatives]"
-
-        # Validation : vide
-        if ([string]::IsNullOrWhiteSpace($guessRaw)) {
+        if ([string]::IsNullOrWhiteSpace($raw)) {
             Write-Host "Erreur : saisie invalide (vide)" -ForegroundColor Red
             continue
         }
 
-        # Validation : entier
-        $guess = 0
-        if (-not [int]::TryParse($guessRaw, [ref]$guess)) {
+        $n = 0
+        if (-not [int]::TryParse($raw, [ref]$n)) {
             Write-Host "Erreur : saisie invalide (pas un nombre)" -ForegroundColor Red
             continue
         }
 
-        # Validation : scope
-        if ($guess -lt $x -or $guess -gt $y) {
-            Write-Host "Erreur : le nombre doit être entre $x et $y" -ForegroundColor Red
+        if ($n -lt $Min -or $n -gt $Max) {
+            Write-Host "Erreur : le nombre doit être entre $Min et $Max" -ForegroundColor Red
             continue
         }
 
-        # Tentative comptée seulement si valide
-        $tentatives++
-        Write-Host "Tentative n°$tentatives" -ForegroundColor Yellow
+        return $n
+    }
+}
 
-        if ($guess -lt $nombre) {
-            Write-Host "C'est plus !" -ForegroundColor Blue
-            continue
-        }
+function Read-SecretNumberMasked {
+    param([int]$Min, [int]$Max)
 
-        if ($guess -gt $nombre) {
-            Write-Host "C'est moins !" -ForegroundColor Green
-            continue
-        }
-
-        # Victoire
+    while ($true) {
         Write-Host ""
-        Write-Host "🎉 Bravo ! Trouvé en $tentatives tentative(s)." -ForegroundColor Cyan
+        Write-Host "Joueur 1 : saisissez le nombre secret (il sera masqué)" -ForegroundColor Yellow
+        $secure = Read-Host "Nombre secret ($Min-$Max)" -AsSecureString
 
-        $scores.Add($tentatives)
-        $bestScore = ($scores | Measure-Object -Minimum).Minimum
+        # Conversion SecureString -> string (uniquement pour valider)
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+        try {
+            $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+        }
+        finally {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        }
 
-        Write-Host "Meilleur score (victoires uniquement) : $bestScore" -ForegroundColor Cyan
-        Write-Host "Historique : $($scores -join ', ')" -ForegroundColor Yellow
-        break
+        if ([string]::IsNullOrWhiteSpace($plain)) {
+            Write-Host "Erreur : saisie invalide (vide)" -ForegroundColor Red
+            continue
+        }
+
+        $n = 0
+        if (-not [int]::TryParse($plain, [ref]$n)) {
+            Write-Host "Erreur : saisie invalide (pas un nombre)" -ForegroundColor Red
+            continue
+        }
+
+        if ($n -lt $Min -or $n -gt $Max) {
+            Write-Host "Erreur : le nombre doit être entre $Min et $Max" -ForegroundColor Red
+            continue
+        }
+
+        Clear-Host
+        return $n
     }
+}
 
-    # -------- Rejouer ? --------
-    Write-Host ""
-    $replay = Read-Host "Rejouer ? (O/N) — ou tapez D pour changer de difficulté"
+# -------------------- MAIN --------------------
 
-    if ($replay -match '^(?i)d$') {
-        $config = Select-Difficulty
-        $x = $config.Min
-        $y = $config.Max
-        $maxTentatives = $config.MaxTry
-        $difficultyLabel = $config.Label
-        Show-Header -difficultyLabel $difficultyLabel
-        continue
-    }
+# Scores (victoires) en mode 1 joueur vs ordinateur
+$scoresCPU = New-Object System.Collections.Generic.List[int]
 
-    if ($replay -notmatch '^(?i)o(ui)?$') {
+$modeConfig = Select-Mode
+$diffConfig = Select-Difficulty
+
+$x = $diffConfig.Min
+$y = $diffConfig.Max
+$maxTentatives = $diffConfig.MaxTry
+
+Show-Header -modeLabel $modeConfig.Label -difficultyLabel $diffConfig.Label
+
+if ($modeConfig.Mode -eq 1) {
+    # ========= MODE 1 : vs ordinateur =========
+    while ($true) {
+        $nombre = Get-Random -Minimum $x -Maximum ($y + 1)
+        $tentatives = 0
+
+        while ($true) {
+            if ($tentatives -ge $maxTentatives) {
+                Write-Host ""
+                Write-Host "💀 Perdu ! Limite atteinte : $maxTentatives tentatives." -ForegroundColor Red
+                Write-Host "Le nombre était : $nombre" -ForegroundColor Yellow
+                break
+            }
+
+            $guess = Read-ValidGuess -Min $x -Max $y -TryIndex ($tentatives + 1) -MaxTry $maxTentatives
+            $tentatives++
+            Write-Host "Tentative n°$tentatives" -ForegroundColor Yellow
+
+            if ($guess -lt $nombre) { Write-Host "C'est plus !"  -ForegroundColor Blue; continue }
+            if ($guess -gt $nombre) { Write-Host "C'est moins !" -ForegroundColor Green; continue }
+
+            Write-Host ""
+            Write-Host "🎉 Bravo ! Trouvé en $tentatives tentative(s)." -ForegroundColor Cyan
+            $scoresCPU.Add($tentatives)
+            $bestScore = ($scoresCPU | Measure-Object -Minimum).Minimum
+            Write-Host "Meilleur score : $bestScore" -ForegroundColor Cyan
+            Write-Host "Historique : $($scoresCPU -join ', ')" -ForegroundColor Yellow
+            break
+        }
+
         Write-Host ""
-        Write-Host "Fin du jeu." -ForegroundColor Yellow
+        $replay = Read-Host "Rejouer ? (O/N) — ou D pour changer difficulté"
 
-        if ($scores.Count -gt 0) {
-            $bestScore = ($scores | Measure-Object -Minimum).Minimum
-            Write-Host "Meilleur score final : $bestScore tentative(s)" -ForegroundColor Cyan
-            Write-Host "Scores : $($scores -join ', ')" -ForegroundColor Yellow
+        if ($replay -match '^(?i)d$') {
+            $diffConfig = Select-Difficulty
+            $x = $diffConfig.Min; $y = $diffConfig.Max; $maxTentatives = $diffConfig.MaxTry
+            Show-Header -modeLabel $modeConfig.Label -difficultyLabel $diffConfig.Label
+            continue
         }
-        else {
-            Write-Host "Aucune victoire enregistrée." -ForegroundColor Red
+
+        if ($replay -notmatch '^(?i)o(ui)?$') {
+            Write-Host "Fin du jeu." -ForegroundColor Yellow
+            if ($scoresCPU.Count -gt 0) {
+                $bestScore = ($scoresCPU | Measure-Object -Minimum).Minimum
+                Write-Host "Meilleur score final : $bestScore" -ForegroundColor Cyan
+            }
+            break
         }
-        break
+
+        Show-Header -modeLabel $modeConfig.Label -difficultyLabel $diffConfig.Label
     }
+}
+else {
+    # ========= MODE 2 : Deux joueurs =========
+    $player1 = "Joueur 1"
+    $player2 = "Joueur 2"
 
-    Show-Header -difficultyLabel $difficultyLabel
+    while ($true) {
+        Show-Header -modeLabel $modeConfig.Label -difficultyLabel $diffConfig.Label
+
+        # Joueur 1 choisit le secret (masqué) + Clear-Host
+        $secret = Read-SecretNumberMasked -Min $x -Max $y
+
+        Write-Host "C'est parti ! $player2 doit deviner." -ForegroundColor Yellow
+        $tentatives = 0
+        $win = $false
+
+        while ($true) {
+            if ($tentatives -ge $maxTentatives) {
+                Write-Host ""
+                Write-Host "💀 $player2 a perdu : $maxTentatives tentatives dépassées." -ForegroundColor Red
+                Write-Host "Le nombre secret était : $secret" -ForegroundColor Yellow
+                break
+            }
+
+            $guess = Read-ValidGuess -Min $x -Max $y -TryIndex ($tentatives + 1) -MaxTry $maxTentatives
+            $tentatives++
+            Write-Host "Tentative n°$tentatives" -ForegroundColor Yellow
+
+            if ($guess -lt $secret) { Write-Host "C'est plus !"  -ForegroundColor Blue; continue }
+            if ($guess -gt $secret) { Write-Host "C'est moins !" -ForegroundColor Green; continue }
+
+            Write-Host ""
+            Write-Host "🎉 Victoire ! $player2 a trouvé en $tentatives tentative(s)." -ForegroundColor Cyan
+            $win = $true
+            break
+        }
+
+        Write-Host ""
+        $swap = Read-Host "Inverser les rôles ? (O/N)"
+        if ($swap -match '^(?i)o(ui)?$') {
+            $tmp = $player1; $player1 = $player2; $player2 = $tmp
+        }
+
+        Write-Host ""
+        $replay = Read-Host "Rejouer une manche ? (O/N) — ou D pour changer difficulté"
+        if ($replay -match '^(?i)d$') {
+            $diffConfig = Select-Difficulty
+            $x = $diffConfig.Min; $y = $diffConfig.Max; $maxTentatives = $diffConfig.MaxTry
+            continue
+        }
+
+        if ($replay -notmatch '^(?i)o(ui)?$') {
+            Write-Host "Fin du mode deux joueurs." -ForegroundColor Yellow
+            break
+        }
+    }
 }
