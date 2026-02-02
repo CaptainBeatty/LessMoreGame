@@ -1,3 +1,22 @@
+param(
+    # Override du niveau (sinon menu)
+    [ValidateSet("Facile", "Moyen", "Difficile")]
+    [string]$Niveau,
+
+    # Override max tentatives (sinon calculé par difficulté)
+    [ValidateRange(1, 999)]
+    [int]$MaxTentatives,
+
+    # Mode chrono (temps total max par partie)
+    [switch]$Chrono,
+    [ValidateRange(5, 3600)]
+    [int]$TimeLimitSeconds = 60,
+
+    # Désactiver certains bonus
+    [switch]$NoHint,
+    [switch]$NoBeep,
+    [switch]$NoAnimation
+)
 
 <#
 .SYNOPSIS
@@ -11,6 +30,13 @@ Ce script implémente un jeu de devinette :
 - Feedback couleur (plus / moins / victoire / infos)
 - Sauvegarde persistante des scores dans un fichier CSV (nom, niveau, tentatives, date)
 - Menu principal avec option "Voir les scores" (Top 10)
+
+BONUS :
+- Indice intelligent après 5 tentatives (pair/impair)
+- Mode chronométré (limite de temps par partie)
+- Statistiques avancées (session)
+- Sons/animation (beeps + ASCII)
+- Paramètres CLI (-Niveau, -MaxTentatives, -Chrono, ...)
 
 .AUTHOR
 CaptainBeatty
@@ -26,34 +52,7 @@ CaptainBeatty
 # ==============================
 # SECTION 1 — Gestion des scores
 # ==============================
-# - Initialise le fichier scores.csv s'il n'existe pas
-# - Charge les scores au démarrage
-# - Enregistre un score à chaque victoire
-# - Affiche un tableau des meilleurs scores
 
-# ==============================
-# SECTION 2 — Interface / Menus
-# ==============================
-# - Affichage du header du jeu
-# - Choix du mode (1 joueur / 2 joueurs)
-# - Choix de la difficulté (scope + limite)
-
-# ==============================
-# SECTION 3 — Saisie sécurisée
-# ==============================
-# - Validation stricte des entrées (vide / non-numérique / hors scope => rouge)
-# - Saisie masquée du nombre secret en mode 2 joueurs
-
-# ==============================
-# SECTION 4 — Boucle principale
-# ==============================
-# - Menu principal : jouer / voir les scores / quitter
-# - Lancement des parties selon le mode et la difficulté
-# - Gestion rejouer / changer difficulté / inverser rôles
-
-
-
-# ---------------- SCORES PERSISTANTS ----------------
 $ScoresFile = Join-Path $PSScriptRoot "scores.csv"
 
 function Initialize-ScoresFile {
@@ -109,8 +108,100 @@ function Show-BestScores {
     Write-Host ""
 }
 
-# ---------------- UI / JEU ----------------
-# Affiche l'en-tête du jeu (titre, mode, difficulté, règles)
+# ==============================
+# SECTION 2 — Bonus (indice/chrono/stats/son/anim)
+# ==============================
+
+function Get-Hint {
+    param([int]$Secret)
+    if (($Secret % 2) -eq 0) { return "Indice : le nombre est PAIR." }
+    return "Indice : le nombre est IMPAIR."
+}
+
+function New-StopwatchIfNeeded {
+    param([switch]$Enabled)
+    if (-not $Enabled) { return $null }
+    return [System.Diagnostics.Stopwatch]::StartNew()
+}
+
+function Check-TimeOut {
+    param(
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+        [int]$LimitSeconds
+    )
+    if ($null -eq $Stopwatch) { return $false }
+    return ($Stopwatch.Elapsed.TotalSeconds -ge $LimitSeconds)
+}
+
+function Beep-Feedback {
+    param(
+        [ValidateSet("Plus", "Moins", "Win", "Lose", "Info")]
+        [string]$Type,
+        [switch]$Disabled
+    )
+    if ($Disabled) { return }
+
+    switch ($Type) {
+        "Plus" { [console]::Beep(900, 120) }
+        "Moins" { [console]::Beep(650, 120) }
+        "Win" { [console]::Beep(1200, 180); [console]::Beep(1500, 180) }
+        "Lose" { [console]::Beep(300, 250) }
+        "Info" { [console]::Beep(500, 80) }
+    }
+}
+
+function Show-WinAnimation {
+    param([switch]$Disabled)
+    if ($Disabled) { return }
+
+    $frames = @(
+        "   \o/   🎉  ",
+        "    |    🎉  ",
+        "   / \   🎉  "
+    )
+
+    for ($i = 0; $i -lt 6; $i++) {
+        Clear-Host
+        Write-Host "VICTOIRE !" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host $frames[$i % $frames.Count] -ForegroundColor Cyan
+        Start-Sleep -Milliseconds 120
+    }
+}
+
+function Show-SessionStats {
+    param(
+        [int]$GamesPlayed,
+        [int]$GamesWon,
+        [int[]]$WinAttempts
+    )
+
+    Write-Host ""
+    Write-Host "===== Statistiques (session) =====" -ForegroundColor Cyan
+    Write-Host ("Parties jouées : {0}" -f $GamesPlayed) -ForegroundColor Yellow
+    Write-Host ("Victoires      : {0}" -f $GamesWon) -ForegroundColor Yellow
+
+    if ($GamesPlayed -gt 0) {
+        $winRate = [math]::Round(($GamesWon / $GamesPlayed) * 100, 2)
+        Write-Host ("Taux de victoire : {0}%" -f $winRate) -ForegroundColor Yellow
+    }
+
+    if ($WinAttempts.Count -gt 0) {
+        $avg = [math]::Round(($WinAttempts | Measure-Object -Average).Average, 2)
+        $best = ($WinAttempts | Measure-Object -Minimum).Minimum
+        Write-Host ("Moyenne tentatives (victoires) : {0}" -f $avg) -ForegroundColor Yellow
+        Write-Host ("Meilleur score (session)       : {0}" -f $best) -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "Aucune victoire -> pas de moyenne / meilleur score." -ForegroundColor Red
+    }
+    Write-Host ""
+}
+
+# ==============================
+# SECTION 3 — Interface / Menus
+# ==============================
+
 function Show-Header {
     param([string]$modeLabel, [string]$difficultyLabel)
 
@@ -122,15 +213,20 @@ function Show-Header {
     if ($modeLabel) { Write-Host "Mode : $modeLabel" -ForegroundColor Yellow }
     if ($difficultyLabel) { Write-Host "Difficulté : $difficultyLabel" -ForegroundColor Yellow }
 
+    if ($Chrono) {
+        Write-Host ("Chrono : ON ({0}s)" -f $TimeLimitSeconds) -ForegroundColor Yellow
+    }
+
     Write-Host ""
     Write-Host "Règles du jeu :" -ForegroundColor Yellow
     Write-Host "- Devinez le nombre" -ForegroundColor Yellow
     Write-Host "- Le jeu indique plus / moins" -ForegroundColor Yellow
     Write-Host "- Saisie invalide => erreur rouge" -ForegroundColor Yellow
     Write-Host "- Tentatives limitées" -ForegroundColor Yellow
+    if (-not $NoHint) { Write-Host "- Indice après 5 tentatives" -ForegroundColor Yellow }
     Write-Host ""
 }
-# Demande le mode de jeu (1 joueur / 2 joueurs) et retourne un objet de config
+
 function Select-Mode {
     while ($true) {
         Clear-Host
@@ -150,7 +246,7 @@ function Select-Mode {
         }
     }
 }
-# Demande la difficulté et retourne scope + limite de tentatives
+
 function Select-Difficulty {
     while ($true) {
         Clear-Host
@@ -172,7 +268,11 @@ function Select-Difficulty {
         }
     }
 }
-# Lit une saisie et boucle tant que ce n'est pas un entier valide dans le scope
+
+# ==============================
+# SECTION 4 — Saisie sécurisée
+# ==============================
+
 function Read-ValidGuess {
     param(
         [int]$Min,
@@ -203,7 +303,7 @@ function Read-ValidGuess {
         return $n
     }
 }
-# Saisie masquée du nombre secret (mode 2 joueurs) puis efface l'écran
+
 function Read-SecretNumberMasked {
     param([int]$Min, [int]$Max)
 
@@ -212,14 +312,9 @@ function Read-SecretNumberMasked {
         Write-Host "Joueur 1 : saisissez le nombre secret (il sera masqué)" -ForegroundColor Yellow
         $secure = Read-Host "Nombre secret ($Min-$Max)" -AsSecureString
 
-        # Conversion SecureString -> string (uniquement pour valider)
         $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-        try {
-            $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-        }
-        finally {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-        }
+        try { $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 
         if ([string]::IsNullOrWhiteSpace($plain)) {
             Write-Host "Erreur : saisie invalide (vide)" -ForegroundColor Red
@@ -250,14 +345,20 @@ function Read-PlayerName {
     return $name.Trim()
 }
 
-# -------------------- MAIN --------------------
+# ==============================
+# SECTION 5 — Boucle principale
+# ==============================
 
 Initialize-ScoresFile
 
-# Scores (session) en mode 1 joueur vs ordinateur (toujours utile pour affichage rapide)
+# Historique session CPU (victoires)
 $scoresCPU = New-Object System.Collections.Generic.List[int]
 
-# -------- Menu principal (nouveau) --------
+# Stats session (tous modes)
+$gamesPlayed = 0
+$gamesWon = 0
+$winAttempts = New-Object System.Collections.Generic.List[int]
+
 while ($true) {
     Clear-Host
     Write-Host "==============================" -ForegroundColor Cyan
@@ -279,9 +380,7 @@ while ($true) {
         continue
     }
 
-    if ($mainChoice -eq '3') {
-        break
-    }
+    if ($mainChoice -eq '3') { break }
 
     if ($mainChoice -ne '1') {
         Write-Host "Erreur : choix invalide" -ForegroundColor Red
@@ -289,13 +388,27 @@ while ($true) {
         continue
     }
 
-    # Lancement d'une session de jeu (mode + difficulté)
+    # Mode + difficulté
     $modeConfig = Select-Mode
-    $diffConfig = Select-Difficulty
+
+    if ($PSBoundParameters.ContainsKey("Niveau")) {
+        switch ($Niveau) {
+            "Facile" { $diffConfig = @{ Min = 1; Max = 50; MaxTry = 15; Label = "Facile" } }
+            "Moyen" { $diffConfig = @{ Min = 1; Max = 100; MaxTry = 10; Label = "Moyen" } }
+            "Difficile" { $diffConfig = @{ Min = 1; Max = 200; MaxTry = 8; Label = "Difficile" } }
+        }
+    }
+    else {
+        $diffConfig = Select-Difficulty
+    }
 
     $x = $diffConfig.Min
     $y = $diffConfig.Max
     $maxTentatives = $diffConfig.MaxTry
+
+    if ($PSBoundParameters.ContainsKey("MaxTentatives")) {
+        $maxTentatives = $MaxTentatives
+    }
 
     Show-Header -modeLabel $modeConfig.Label -difficultyLabel $diffConfig.Label
 
@@ -304,13 +417,27 @@ while ($true) {
         $playerName = Read-PlayerName -Prompt "Nom du joueur"
 
         while ($true) {
+            $gamesPlayed++
             $nombre = Get-Random -Minimum $x -Maximum ($y + 1)
             $tentatives = 0
+            $hintGiven = $false
+            $sw = New-StopwatchIfNeeded -Enabled:$Chrono
 
             while ($true) {
+                # Timeout
+                if (Check-TimeOut -Stopwatch $sw -LimitSeconds $TimeLimitSeconds) {
+                    Write-Host ""
+                    Write-Host "⏱️ Temps écoulé ! Perdu." -ForegroundColor Red
+                    Beep-Feedback -Type "Lose" -Disabled:$NoBeep
+                    Write-Host "Le nombre était : $nombre" -ForegroundColor Yellow
+                    break
+                }
+
+                # Limite tentatives
                 if ($tentatives -ge $maxTentatives) {
                     Write-Host ""
                     Write-Host "💀 Perdu ! Limite atteinte : $maxTentatives tentatives." -ForegroundColor Red
+                    Beep-Feedback -Type "Lose" -Disabled:$NoBeep
                     Write-Host "Le nombre était : $nombre" -ForegroundColor Yellow
                     break
                 }
@@ -319,11 +446,34 @@ while ($true) {
                 $tentatives++
                 Write-Host "Tentative n°$tentatives" -ForegroundColor Yellow
 
-                if ($guess -lt $nombre) { Write-Host "C'est plus !"  -ForegroundColor Blue; continue }
-                if ($guess -gt $nombre) { Write-Host "C'est moins !" -ForegroundColor Green; continue }
+                # Indice après 5 tentatives
+                if (-not $NoHint -and -not $hintGiven -and $tentatives -ge 5) {
+                    Write-Host (Get-Hint -Secret $nombre) -ForegroundColor Yellow
+                    Beep-Feedback -Type "Info" -Disabled:$NoBeep
+                    $hintGiven = $true
+                }
 
+                if ($guess -lt $nombre) {
+                    Write-Host "C'est plus !" -ForegroundColor Blue
+                    Beep-Feedback -Type "Plus" -Disabled:$NoBeep
+                    continue
+                }
+
+                if ($guess -gt $nombre) {
+                    Write-Host "C'est moins !" -ForegroundColor Green
+                    Beep-Feedback -Type "Moins" -Disabled:$NoBeep
+                    continue
+                }
+
+                # Victoire
                 Write-Host ""
                 Write-Host "🎉 Bravo ! Trouvé en $tentatives tentative(s)." -ForegroundColor Cyan
+                Beep-Feedback -Type "Win" -Disabled:$NoBeep
+                Show-WinAnimation -Disabled:$NoAnimation
+
+                $gamesWon++
+                $winAttempts.Add($tentatives)
+                Show-SessionStats -GamesPlayed $gamesPlayed -GamesWon $gamesWon -WinAttempts $winAttempts
 
                 # Session history
                 $scoresCPU.Add($tentatives)
@@ -331,23 +481,35 @@ while ($true) {
                 # Persist score
                 Save-Score -Player $playerName -Level $diffConfig.Label -Attempts $tentatives
 
-                # Best score global (fichier)
                 $allScores = Load-Scores
                 $bestGlobal = ($allScores | Measure-Object -Property Attempts -Minimum).Minimum
                 Write-Host "Meilleur score global : $bestGlobal tentative(s)" -ForegroundColor Cyan
 
-                Write-Host "Historique session : $($scoresCPU -join ', ')" -ForegroundColor Yellow
+                Write-Host "Historique session (CPU) : $($scoresCPU -join ', ')" -ForegroundColor Yellow
                 Write-Host ""
                 Show-BestScores -Top 10
                 break
             }
 
             Write-Host ""
-            $replay = Read-Host "Rejouer ? (O/N) — ou D pour changer difficulté"
+            $replay = Read-Host "Rejouer ? (O/N) — D: changer difficulté — M: menu"
+
+            if ($replay -match '^(?i)m$') { break }
 
             if ($replay -match '^(?i)d$') {
-                $diffConfig = Select-Difficulty
-                $x = $diffConfig.Min; $y = $diffConfig.Max; $maxTentatives = $diffConfig.MaxTry
+                if ($PSBoundParameters.ContainsKey("Niveau")) {
+                    Write-Host "Niveau fixé par paramètre (-Niveau). Relance le script pour changer." -ForegroundColor Yellow
+                    Start-Sleep -Milliseconds 1100
+                }
+                else {
+                    $diffConfig = Select-Difficulty
+                    $x = $diffConfig.Min; $y = $diffConfig.Max; $maxTentatives = $diffConfig.MaxTry
+                }
+
+                if ($PSBoundParameters.ContainsKey("MaxTentatives")) {
+                    $maxTentatives = $MaxTentatives
+                }
+
                 Show-Header -modeLabel $modeConfig.Label -difficultyLabel $diffConfig.Label
                 continue
             }
@@ -366,17 +528,31 @@ while ($true) {
         $player2 = Read-PlayerName -Prompt "Nom du Joueur 2 (devine)"
 
         while ($true) {
+            $gamesPlayed++
             Show-Header -modeLabel $modeConfig.Label -difficultyLabel $diffConfig.Label
 
             $secret = Read-SecretNumberMasked -Min $x -Max $y
+            $tentatives = 0
+            $hintGiven = $false
+            $sw = New-StopwatchIfNeeded -Enabled:$Chrono
 
             Write-Host "C'est parti ! $player2 doit deviner." -ForegroundColor Yellow
-            $tentatives = 0
 
             while ($true) {
+                # Timeout
+                if (Check-TimeOut -Stopwatch $sw -LimitSeconds $TimeLimitSeconds) {
+                    Write-Host ""
+                    Write-Host "⏱️ Temps écoulé ! $player2 a perdu." -ForegroundColor Red
+                    Beep-Feedback -Type "Lose" -Disabled:$NoBeep
+                    Write-Host "Le nombre secret était : $secret" -ForegroundColor Yellow
+                    break
+                }
+
+                # Limite tentatives
                 if ($tentatives -ge $maxTentatives) {
                     Write-Host ""
                     Write-Host "💀 $player2 a perdu : $maxTentatives tentatives dépassées." -ForegroundColor Red
+                    Beep-Feedback -Type "Lose" -Disabled:$NoBeep
                     Write-Host "Le nombre secret était : $secret" -ForegroundColor Yellow
                     break
                 }
@@ -385,13 +561,35 @@ while ($true) {
                 $tentatives++
                 Write-Host "Tentative n°$tentatives" -ForegroundColor Yellow
 
-                if ($guess -lt $secret) { Write-Host "C'est plus !"  -ForegroundColor Blue; continue }
-                if ($guess -gt $secret) { Write-Host "C'est moins !" -ForegroundColor Green; continue }
+                # Indice après 5 tentatives
+                if (-not $NoHint -and -not $hintGiven -and $tentatives -ge 5) {
+                    Write-Host (Get-Hint -Secret $secret) -ForegroundColor Yellow
+                    Beep-Feedback -Type "Info" -Disabled:$NoBeep
+                    $hintGiven = $true
+                }
 
+                if ($guess -lt $secret) {
+                    Write-Host "C'est plus !" -ForegroundColor Blue
+                    Beep-Feedback -Type "Plus" -Disabled:$NoBeep
+                    continue
+                }
+
+                if ($guess -gt $secret) {
+                    Write-Host "C'est moins !" -ForegroundColor Green
+                    Beep-Feedback -Type "Moins" -Disabled:$NoBeep
+                    continue
+                }
+
+                # Victoire
                 Write-Host ""
                 Write-Host "🎉 Victoire ! $player2 a trouvé en $tentatives tentative(s)." -ForegroundColor Cyan
+                Beep-Feedback -Type "Win" -Disabled:$NoBeep
+                Show-WinAnimation -Disabled:$NoAnimation
 
-                # Persist score : on log le joueur qui devine
+                $gamesWon++
+                $winAttempts.Add($tentatives)
+                Show-SessionStats -GamesPlayed $gamesPlayed -GamesWon $gamesWon -WinAttempts $winAttempts
+
                 Save-Score -Player $player2 -Level $diffConfig.Label -Attempts $tentatives
 
                 $allScores = Load-Scores
@@ -409,10 +607,23 @@ while ($true) {
             }
 
             Write-Host ""
-            $replay = Read-Host "Rejouer une manche ? (O/N) — ou D pour changer difficulté"
+            $replay = Read-Host "Rejouer une manche ? (O/N) — D: changer difficulté — M: menu"
+
+            if ($replay -match '^(?i)m$') { break }
+
             if ($replay -match '^(?i)d$') {
-                $diffConfig = Select-Difficulty
-                $x = $diffConfig.Min; $y = $diffConfig.Max; $maxTentatives = $diffConfig.MaxTry
+                if ($PSBoundParameters.ContainsKey("Niveau")) {
+                    Write-Host "Niveau fixé par paramètre (-Niveau). Relance le script pour changer." -ForegroundColor Yellow
+                    Start-Sleep -Milliseconds 1100
+                }
+                else {
+                    $diffConfig = Select-Difficulty
+                    $x = $diffConfig.Min; $y = $diffConfig.Max; $maxTentatives = $diffConfig.MaxTry
+                }
+
+                if ($PSBoundParameters.ContainsKey("MaxTentatives")) {
+                    $maxTentatives = $MaxTentatives
+                }
                 continue
             }
 
@@ -423,6 +634,5 @@ while ($true) {
         }
     }
 
-    # Retour au menu principal après une session
     Read-Host "Session terminée. Appuyez sur Entrée pour revenir au menu principal"
 }
