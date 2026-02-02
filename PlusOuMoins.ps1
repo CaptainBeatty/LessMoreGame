@@ -1,3 +1,58 @@
+
+<#
+.SYNOPSIS
+Jeu "Less / More" en PowerShell avec modes 1 joueur vs ordinateur et 2 joueurs, niveaux de difficulté et sauvegarde des scores.
+
+.DESCRIPTION
+Ce script implémente un jeu de devinette :
+- Choix du mode : 1 joueur (nombre généré) ou 2 joueurs (nombre choisi et saisi de façon masquée)
+- Choix de la difficulté : Facile / Moyen / Difficile (scope + tentatives max)
+- Gestion stricte des saisies (vide, non-numérique, hors scope => erreur rouge)
+- Feedback couleur (plus / moins / victoire / infos)
+- Sauvegarde persistante des scores dans un fichier CSV (nom, niveau, tentatives, date)
+- Menu principal avec option "Voir les scores" (Top 10)
+
+.AUTHOR
+CaptainBeatty
+
+.DATE
+2026-02-02
+
+.NOTES
+- Le fichier scores.csv est volontairement ignoré par Git (.gitignore) car il contient des données utilisateur.
+- Le script doit être exécuté dans un terminal PowerShell (Windows PowerShell ou PowerShell 7+).
+#>
+
+# ==============================
+# SECTION 1 — Gestion des scores
+# ==============================
+# - Initialise le fichier scores.csv s'il n'existe pas
+# - Charge les scores au démarrage
+# - Enregistre un score à chaque victoire
+# - Affiche un tableau des meilleurs scores
+
+# ==============================
+# SECTION 2 — Interface / Menus
+# ==============================
+# - Affichage du header du jeu
+# - Choix du mode (1 joueur / 2 joueurs)
+# - Choix de la difficulté (scope + limite)
+
+# ==============================
+# SECTION 3 — Saisie sécurisée
+# ==============================
+# - Validation stricte des entrées (vide / non-numérique / hors scope => rouge)
+# - Saisie masquée du nombre secret en mode 2 joueurs
+
+# ==============================
+# SECTION 4 — Boucle principale
+# ==============================
+# - Menu principal : jouer / voir les scores / quitter
+# - Lancement des parties selon le mode et la difficulté
+# - Gestion rejouer / changer difficulté / inverser rôles
+
+
+
 # ---------------- SCORES PERSISTANTS ----------------
 $ScoresFile = Join-Path $PSScriptRoot "scores.csv"
 
@@ -55,7 +110,7 @@ function Show-BestScores {
 }
 
 # ---------------- UI / JEU ----------------
-
+# Affiche l'en-tête du jeu (titre, mode, difficulté, règles)
 function Show-Header {
     param([string]$modeLabel, [string]$difficultyLabel)
 
@@ -75,7 +130,7 @@ function Show-Header {
     Write-Host "- Tentatives limitées" -ForegroundColor Yellow
     Write-Host ""
 }
-
+# Demande le mode de jeu (1 joueur / 2 joueurs) et retourne un objet de config
 function Select-Mode {
     while ($true) {
         Clear-Host
@@ -95,7 +150,7 @@ function Select-Mode {
         }
     }
 }
-
+# Demande la difficulté et retourne scope + limite de tentatives
 function Select-Difficulty {
     while ($true) {
         Clear-Host
@@ -117,7 +172,7 @@ function Select-Difficulty {
         }
     }
 }
-
+# Lit une saisie et boucle tant que ce n'est pas un entier valide dans le scope
 function Read-ValidGuess {
     param(
         [int]$Min,
@@ -148,7 +203,7 @@ function Read-ValidGuess {
         return $n
     }
 }
-
+# Saisie masquée du nombre secret (mode 2 joueurs) puis efface l'écran
 function Read-SecretNumberMasked {
     param([int]$Min, [int]$Max)
 

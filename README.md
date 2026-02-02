@@ -1,5 +1,5 @@
 # Challenge PowerShell - Jeu du Plus ou Moins
-# Auteur : CaptainBeatty
+# Auteur : CaptainBeatty 
 ## Contexte professionnel
 
 Vous travaillez chez **TechSecure** en tant qu'administrateur système junior. Dans le cadre de votre formation continue, votre manager souhaite que vous maîtrisiez PowerShell et les bonnes pratiques de développement, notamment l'utilisation de Git pour versionner votre code.
@@ -343,3 +343,57 @@ Votre script doit contenir au minimum :
 **Difficulté** : ⭐⭐☆☆☆
 
 🚀 **Bon courage !** N'oubliez pas : commitez et poussez régulièrement, c'est la clé ! Votre historique Git doit raconter l'histoire de votre développement.
+
+
+
+# LessMoreGame 🎯 (PowerShell)
+
+Jeu de devinette “Plus / Moins” développé en PowerShell, avec modes de jeu, niveaux de difficulté, affichage en couleurs et sauvegarde persistante des scores.
+
+---
+
+## ✅ Fonctionnalités
+
+### 🎮 Modes de jeu
+- **1 joueur vs ordinateur** : le script génère un nombre aléatoire.
+- **2 joueurs** :
+  - Joueur 1 choisit un nombre **en saisie masquée** (puis l’écran est effacé).
+  - Joueur 2 doit le deviner.
+  - Possibilité **d’inverser les rôles** à la fin de chaque manche.
+
+### 🧩 Difficultés
+- **Facile** : nombre entre **1 et 50**, **15 tentatives**
+- **Moyen** : nombre entre **1 et 100**, **10 tentatives**
+- **Difficile** : nombre entre **1 et 200**, **8 tentatives**
+
+### ✅ Validation stricte des saisies
+Toutes les entrées invalides déclenchent un message d’erreur **rouge** :
+- chaîne vide / espaces
+- lettres / symboles
+- nombres négatifs
+- valeurs hors scope (ex: > max ou < min)
+
+### 🎨 Affichage en couleurs
+- Bleu : “Plus grand”
+- Vert : “Plus petit”
+- Jaune : messages d’information
+- Cyan : victoire / infos importantes
+- Rouge : erreurs / défaite
+
+### 🏆 Scores persistants
+- Sauvegarde des scores dans un fichier `scores.csv` (non versionné)
+- Enregistrement : **nom du joueur, niveau, nombre de tentatives, date**
+- Affichage d’un **Top 10** via le menu **“Voir les scores”**
+
+---
+
+## 🚀 Installation & Lancement
+
+### Prérequis
+- Windows PowerShell 5.1 **ou** PowerShell 7+
+
+### Lancer le jeu
+Depuis un terminal PowerShell dans le dossier du projet :
+
+```powershell
+.\LessMoreGame.ps1
