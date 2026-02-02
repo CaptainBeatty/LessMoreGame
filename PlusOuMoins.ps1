@@ -23,7 +23,6 @@ while ($true) {
 
     $tentatives = 0
 
-
     # Write-Host $nombre  # DEBUG : décommente si tu veux afficher le nombre
 
     while ($true) {
@@ -34,13 +33,13 @@ while ($true) {
         # Validation : doit être un entier
         $guess = 0
         if (-not [int]::TryParse($guessRaw, [ref]$guess)) {
-            Write-Host "ce n'est pas une valeur valide"
+            Write-Host "ce n'est pas une valeur valide" -ForegroundColor Red
             continue
         }
 
         # Validation : dans la plage
         if ($guess -lt $x -or $guess -gt $y) {
-            Write-Host "le scope n'est pas bon"
+            Write-Host "le scope n'est pas bon" -ForegroundColor Red
             continue
         }
 
